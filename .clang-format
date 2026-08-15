@@ -1,0 +1,80 @@
+# Based on Google style, ROS2-friendly
+BasedOnStyle: Google
+
+Language: Cpp
+
+# Indentation
+IndentWidth: 2
+TabWidth: 2
+UseTab: Never
+ContinuationIndentWidth: 2
+
+# Maximum line length (ROS2 style is 100)
+ColumnLimit: 120
+
+# Braces
+BreakBeforeBraces: Allman
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+
+# Namespaces (common in ROS2)
+NamespaceIndentation: None
+
+# Include sorting
+IncludeBlocks: Regroup
+SortIncludes: true
+IncludeCategories:
+  - Regex: '^"rclcpp/.*"'
+    Priority: 1
+  - Regex: '^"sensor_msgs/.*"'
+    Priority: 2
+  - Regex: '^"geometry_msgs/.*"'
+    Priority: 3
+  - Regex: '^<.*>'
+    Priority: 4
+  - Regex: '.*'
+    Priority: 5
+
+# Pointers & references
+DerivePointerAlignment: false
+PointerAlignment: Left
+
+# Constructor initializers
+BreakConstructorInitializers: BeforeColon
+ConstructorInitializerIndentWidth: 2
+
+# Function arguments formatting
+BinPackParameters: false
+BinPackArguments: false
+
+# Control statements
+SpaceBeforeParens: ControlStatements
+
+# Comments
+ReflowComments: true
+
+# Alignments
+AlignOperands: true
+AlignTrailingComments: true
+
+# Keep simple blocks compact
+KeepEmptyLinesAtTheStartOfBlocks: false
+MaxEmptyLinesToKeep: 1
+
+# C++ specific
+FixNamespaceComments: true
+SortUsingDeclarations: true
+
+# Macros often used in ROS2
+StatementMacros:
+  - RCLCPP_INFO
+  - RCLCPP_WARN
+  - RCLCPP_ERROR
+  - RCLCPP_DEBUG
+
+# Math / Eigen readability
+SpacesInParentheses: false
+SpacesInAngles: false
+SpaceInEmptyParentheses: false
+AlwaysBreakTemplateDeclarations: Yes

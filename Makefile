@@ -24,10 +24,16 @@ help:
 	@echo "  ROS_DISTRO=<distro>   ROS2 distribution name  (default: jazzy)"
 	@echo ""
 
-build-cpp-library:
+build-cpp:
 	@echo "==> Building yolo_onnx_ros C++ library..."
 	@mkdir -p $(YOLO_ONNX_CPP_BUILD_DIR)
 	@cd $(YOLO_ONNX_CPP_BUILD_DIR) && cmake .. -DCMAKE_BUILD_TYPE=Release && make -j$(JOBS)
+	@echo "==> C++ library build complete."
+
+build-cpp-valgrind:
+	@echo "==> Building yolo_onnx_ros C++ library..."
+	@mkdir -p $(YOLO_ONNX_CPP_BUILD_DIR)
+	@cd $(YOLO_ONNX_CPP_BUILD_DIR) && cmake --build . --target valgrind
 	@echo "==> C++ library build complete."
 
 clean-cpp:

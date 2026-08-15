@@ -11,11 +11,15 @@ include_directories("${ONNXRUNTIME_ROOT_DIR}/include"
 link_directories(${ONNXRUNTIME_ROOT_DIR}/lib)
 
 set(HEADERS
-    include/yolo_onnx/YoloOnnx.hpp
+    include/yolo_onnx/YoloORTInterface.hpp
+    include/yolo_onnx/YoloORTDetector.hpp
+    include/yolo_onnx/YoloUtils.hpp
 )
 
 set(SOURCES
-    src/YoloOnnx.cpp
+    src/YoloORTInterface.cpp
+    src/YoloORTDetector.cpp
+    src/YoloUtils.cpp
 )
 
 add_library(${PROJECT_NAME} SHARED ${SOURCES} ${HEADERS})
@@ -50,3 +54,22 @@ install(EXPORT ${PROJECT_NAME}Config
     NAMESPACE ${PROJECT_NAME}::
     DESTINATION lib/cmake/${PROJECT_NAME}
 )
+
+# --- Valgrind memcheck target ---
+find_program(VALGRIND valgrind)
+if(VALGRIND)
+    add_custom_target(valgrind
+        COMMAND ${VALGRIND}
+            --leak-check=full
+            --show-leak-kinds=no
+            --track-origins=yes
+            --error-exitcode=1
+            $<TARGET_FILE:inference_test>
+        DEPENDS inference_test
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+        COMMENT "Running Valgrind memcheck on inference_test"
+        VERBATIM
+    )
+else()
+    message(WARNING "Valgrind not found — 'valgrind' target will not be available")
+endif()
