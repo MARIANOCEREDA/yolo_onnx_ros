@@ -1,0 +1,132 @@
+# syntax = docker/dockerfile:1.2
+
+FROM nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04 AS core_system
+
+# Prevent interactive questions during image build
+ENV DEBIAN_FRONTEND=noninteractive
+ENV ROS_DISTRO=jazzy
+ENV LANG=en_US.UTF-8
+
+# Remove the docker-auto-clean feature of debian docker images
+RUN rm -f /etc/apt/apt.conf.d/docker-clean
+
+# Bootstrap: locale, universe repo, and ROS 2 Jazzy apt repository
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt update \
+    && apt install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    gnupg \
+    locales \
+    software-properties-common \
+    && locale-gen en_US en_US.UTF-8 \
+    && update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 \
+    && add-apt-repository universe \
+    && curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
+       -o /usr/share/keyrings/ros-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] \
+       http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" \
+       | tee /etc/apt/sources.list.d/ros2.list > /dev/null
+
+# Install ROS 2 Jazzy base, colcon, rosdep, and all essential packages
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt update \
+    && apt install -y --no-install-recommends \
+    apt-transport-https \
+    bash-completion \
+    build-essential \
+    ccache \
+    cmake \
+    gdb \
+    git \
+    htop \
+    iputils-ping \
+    libglfw3-dev \
+    locate \
+    mc \
+    nano \
+    openssh-client \
+    python-is-python3 \
+    python3-colcon-argcomplete \
+    python3-colcon-common-extensions \
+    python3-pip \
+    python3-rosdep \
+    ros-$ROS_DISTRO-ros-base \
+    screen \
+    sudo \
+    tmux \
+    vim \
+    wget \
+    zsh \
+    libserial-dev \
+    clang-tidy \
+    clang-format \
+    ros-$ROS_DISTRO-rviz2 \
+    && rosdep init
+
+FROM core_system AS builder
+
+# Remove the default 'ubuntu' user and any user/group with UID/GID 1000 to avoid conflicts with the host user
+RUN if id -u ubuntu >/dev/null 2>&1; then userdel -r ubuntu; fi
+RUN GROUP_1000="$(getent group 1000 | cut -d: -f1 || true)" \
+    && if [ -n "$GROUP_1000" ]; then groupdel "$GROUP_1000"; fi
+
+ARG UID=1000
+ARG GID=1000
+ARG USER=dev
+ARG GROUP=dev
+
+RUN addgroup --gid $GID $GROUP \
+    && adduser --uid $UID --ingroup $GROUP --home /home/$USER --shell /bin/bash --disabled-password --gecos "" $USER \
+    && adduser $USER sudo \
+    && echo "$USER ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers \
+    && echo "source /opt/ros/$ROS_DISTRO/setup.bash" >> /home/$USER/.bashrc \
+    && echo "source /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash" >> /home/$USER/.bashrc \
+    && echo "export QT_X11_NO_MITSHM=1" >> /home/$USER/.bashrc
+
+COPY docker/fixuid_config.yml /etc/fixuid/config.yml
+RUN /bin/bash -c '\
+    ARCH=`uname -m` && if [ "$ARCH" == "aarch64" ]; then FIXUID_ARCH="arm64"; else FIXUID_ARCH="amd64"; fi \
+    && curl -SsL https://github.com/boxboat/fixuid/releases/download/v0.6.0/fixuid-0.6.0-linux-$FIXUID_ARCH.tar.gz | tar -C /usr/local/bin -xzf - \
+    && chmod 4755 /usr/local/bin/fixuid \
+    && cd /etc/fixuid \
+    && sed -i "s/_USER_/$USER/" config.yml \
+    && sed -i "s/_GROUP_/$GROUP/" config.yml'
+
+COPY --from=ghcr.io/astral-sh/uv:0.6.2 /uv /uvx /bin/
+
+USER $USER
+
+ENV HOME=/home/$USER
+ENV WS_DIR=$HOME/ws
+
+RUN mkdir -p $HOME/.cache
+RUN mkdir -p $HOME/.config
+
+WORKDIR $WS_DIR
+
+# Install OpenCV 4.6.0 (provided by Ubuntu 24.04 Noble apt)
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    sudo apt-get update \
+    && sudo apt-get install -y libopencv-dev
+
+# Install ONNX Runtime 1.22.0 GPU (x64)
+ARG ONNXRUNTIME_VERSION=1.22.0
+RUN cd /tmp \
+    && wget -q https://github.com/microsoft/onnxruntime/releases/download/v${ONNXRUNTIME_VERSION}/onnxruntime-linux-x64-gpu-${ONNXRUNTIME_VERSION}.tgz \
+    && tar -xzf onnxruntime-linux-x64-gpu-${ONNXRUNTIME_VERSION}.tgz \
+    && sudo cp -r onnxruntime-linux-x64-gpu-${ONNXRUNTIME_VERSION}/include/* /usr/local/include/ \
+    && sudo cp -r onnxruntime-linux-x64-gpu-${ONNXRUNTIME_VERSION}/lib/* /usr/local/lib/ \
+    && sudo ldconfig \
+    && rm -rf /tmp/onnxruntime-linux-x64-gpu-${ONNXRUNTIME_VERSION}*
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    sudo apt update \
+    && rosdep update \
+    && rosdep install --from-paths src --ignore-src --rosdistro $ROS_DISTRO -y
+
+ENTRYPOINT [ "/bin/bash" ]

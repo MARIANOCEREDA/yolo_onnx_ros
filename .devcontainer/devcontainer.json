@@ -1,0 +1,40 @@
+{
+    "name": "Dev container YOLO ONNX ROS2",
+    "dockerFile": "../docker/Dockerfile",
+    "workspaceFolder": "/home/dev/ws",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-vscode.cpptools",
+                "ms-vscode.cmake-tools",
+                "ms-python.vscode-pylance",
+                "nonanonno.vscode-ros2",
+                "smilerobotics.urdf",
+                "redhat.vscode-xml",
+                "donjayamanne.githistory",
+                "github.copilot",
+                "ms-python.python",
+                "ms-azuretools.vscode-docker",
+                "eamodio.gitlens"
+            ],
+            "settings": {
+                "terminal.integrated.defaultProfile.linux": "bash",
+                "locale": "en"
+            }
+        }
+    },
+    "mounts": [
+        "source=/dev,target=/dev,type=bind,consistency=cached",
+        "source=/tmp/.X11-unix,target=/tmp/.X11-unix,type=bind,consistency=cached",
+        "source=/home/${localEnv:USER}/ws/rosbag_dataset,target=/home/dev/rosbag_dataset,type=bind,consistency=cached",
+        "source=${localWorkspaceFolder},target=/home/dev/ws,type=bind,consistency=cached"
+    ],
+    "runArgs": [
+        "--env", "DISPLAY=${localEnv:DISPLAY}",
+        "--env", "QT_X11_NO_MITSHM=1",
+        "--gpus", "all",
+        "--shm-size=4g"
+    ],
+    "remoteUser": "dev",
+    "postCreateCommand": "echo 'Devcontainer ready 🚀'"
+}
