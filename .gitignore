@@ -6,4 +6,4 @@ models/*
 images/
 *.png
 *.jpeg
-**/models/**
+models
