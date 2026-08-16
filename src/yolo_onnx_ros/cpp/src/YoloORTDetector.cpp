@@ -9,6 +9,7 @@ namespace yolo_onnx
 
 void YoloORTDetector::Detect(const cv::Mat& input_image, std::vector<BoundingBox>& bounding_boxes)
 {
+  raw_input_image_size_ = cv::Size(input_image.cols, input_image.rows);
   Preprocess(input_image, input_tensor_);
 
   auto& session = GetSession();
@@ -17,10 +18,12 @@ void YoloORTDetector::Detect(const cv::Mat& input_image, std::vector<BoundingBox
 
   std::vector<Ort::Value> output_tensors =
     session.Run(Ort::RunOptions{nullptr}, input_node_names.data(), &input_tensor_, 1, output_node_names.data(), 1);
-  
+
   auto tensor_shape = GetTensorShape(output_tensors.front());
 
-  // Postprocess(input_image, output_tensors);
+  Postprocess(input_image, output_tensors);
+
+  bounding_boxes = final_bboxes_;
 }
 
 void YoloORTDetector::Preprocess(const cv::Mat& input_image, Ort::Value& input_tensor)
@@ -41,8 +44,19 @@ void YoloORTDetector::Preprocess(const cv::Mat& input_image, Ort::Value& input_t
 
 void YoloORTDetector::Postprocess(const cv::Mat& input_image, std::vector<Ort::Value>& output_tensor)
 {
-  cv::Mat blob;
-  OutputTensorToBlob(output_tensor, blob);
+  OutputTensorToBlob(output_tensor, output_blob_);
+
+  detected_bboxes_.clear();
+  GetBoxesFromDetection(output_blob_, detected_bboxes_, input_image.size());
+
+  RemoveLetterboxOffset(
+    detected_bboxes_, cv::Size(INPUT_IMAGE_SIZE, INPUT_IMAGE_SIZE), raw_input_image_size_, letterboxed_image_.size());
+
+  filtered_bboxes_.clear();
+  FilterBoxesByConfidence(detected_bboxes_, filtered_bboxes_, yolo_thresholds_.confidence_threshold);
+
+  final_bboxes_.clear();
+  NonMaxSuppression(filtered_bboxes_, final_bboxes_, yolo_thresholds_.nms_threshold);
 }
 
 }  // namespace yolo_onnx
