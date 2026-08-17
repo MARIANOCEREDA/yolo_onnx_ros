@@ -75,6 +75,15 @@ class YoloORTInterface
     return device_;
   }
 
+  /**
+   * @brief Return the task type for this interface.
+   * @return TaskType enum value indicating the type of YOLO task (detection or segmentation).
+   */
+  TaskType GetTaskType()
+  {
+    return task_type_;
+  }
+
  private:
   /**
    * @brief Build ORT session options from the stored config and device type.

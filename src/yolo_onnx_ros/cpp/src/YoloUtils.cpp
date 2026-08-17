@@ -69,9 +69,23 @@ bool ValidYoloOutputTensor(const Ort::Value& tensor)
   return true;
 }
 
-void OutputTensorToBlob(std::vector<Ort::Value>& tensor, cv::Mat& blob)
+void OutputTensorToBlob(std::vector<Ort::Value>& tensor, cv::Mat& blob, const TaskType task_type)
 {
   std::vector<int64_t> shape = GetTensorShape(tensor.front());
+
+  std::vector<int> expected_shape;
+  if (task_type == TaskType::DETECTION)
+  {
+    expected_shape = kExpectedYoloDetectionTensorShape;
+  }
+  else if (task_type == TaskType::SEGMENTATION)
+  {
+    expected_shape = kExpectedYoloSegmentTensorShape;
+  }
+  else
+  {
+    throw std::runtime_error("Unsupported task type for YOLO output tensor.");
+  }
 
   if (shape.size() != kExpectedYoloOutputTensorRank)
   {
@@ -82,19 +96,21 @@ void OutputTensorToBlob(std::vector<Ort::Value>& tensor, cv::Mat& blob)
   int box_coords_classes = static_cast<int>(shape[1]);
   int predictions = static_cast<int>(shape[2]);
 
-  if (batch != kExpectedYoloDetectionTensorShape[0])
+  if (batch != expected_shape[0])
   {
     throw std::runtime_error("Batch size must be 1 for YOLO output tensor.");
   }
 
-  if (box_coords_classes != kExpectedYoloDetectionTensorShape[1])
+  if (box_coords_classes != expected_shape[1])
   {
-    throw std::runtime_error("Number of classes and boxes coordinates must be 84 for YOLO output tensor.");
+    throw std::runtime_error("Number of classes and boxes coordinates must be " + std::to_string(expected_shape[1]) +
+                             " for YOLO output tensor.");
   }
 
-  if (predictions != kExpectedYoloDetectionTensorShape[2])
+  if (predictions != expected_shape[2])
   {
-    throw std::runtime_error("Number of anchors must be 8400 for YOLO output tensor.");
+    throw std::runtime_error("Number of anchors must be " + std::to_string(expected_shape[2]) +
+                             " for YOLO output tensor.");
   }
 
   float* output_data_ptr = tensor.front().GetTensorMutableData<float>();
@@ -102,23 +118,49 @@ void OutputTensorToBlob(std::vector<Ort::Value>& tensor, cv::Mat& blob)
     box_coords_classes, predictions, CV_32FC1, output_data_ptr);  // cv::Mat with shape (84, 8400) and type CV_32F
 }
 
-void GetBoxesFromDetection(const cv::Mat& detection_blob,
-                           std::vector<BoundingBox>& boxes,
-                           const cv::Size& original_image_size)
+bool ValidateBlobSizeDetection(const cv::Mat& blob)
+{
+  if (blob.empty())
+  {
+    return false;
+  }
+  if (blob.rows != kExpectedYoloDetectionTensorShape[1] || blob.cols != kExpectedYoloDetectionTensorShape[2])
+  {
+    return false;
+  }
+  return true;
+}
+
+bool ValidateBlobSizeSegmentation(const cv::Mat& blob)
+{
+  if (blob.empty())
+  {
+    return false;
+  }
+  if (blob.rows != kExpectedYoloSegmentTensorShape[1] || blob.cols != kExpectedYoloSegmentTensorShape[2])
+  {
+    return false;
+  }
+  return true;
+}
+
+void GetBoxesFromDetection(std::vector<BoundingBox>& boxes,
+                           const cv::Mat& detection_blob,
+                           const cv::Size& original_image_size,
+                           TaskType task_type)
 {
   boxes.clear();
-  if (detection_blob.empty() || detection_blob.rows != kExpectedYoloDetectionTensorShape[1] ||
-      detection_blob.cols != kExpectedYoloDetectionTensorShape[2])
+  if (task_type == TaskType::DETECTION && !ValidateBlobSizeDetection(detection_blob))
   {
-    throw std::runtime_error((std::string("Invalid detection blob shape. Expected shape: ") +
-                              std::to_string(kExpectedYoloDetectionTensorShape[1]) + " x " +
-                              std::to_string(kExpectedYoloDetectionTensorShape[2]) + ", got: " +
-                              std::to_string(detection_blob.rows) + " x " + std::to_string(detection_blob.cols)));
+    throw std::runtime_error("Invalid detection blob size for YOLO detection.");
+  }
+  else if (task_type == TaskType::SEGMENTATION && !ValidateBlobSizeSegmentation(detection_blob))
+  {
+    throw std::runtime_error("Invalid detection blob size for YOLO segmentation.");
   }
 
-  int attrs_count =
-    detection_blob.rows;    // Number of attributes per detection (e.g., x, y, width, height, confidence, class scores)
-  int class_start_col = 4;  // Assuming the first 4 columns are bbox
+  int attrs_count = detection_blob.rows;
+  int class_start_col = CLASS_START_INDEX - 1;
 
   for (int i = 0; i < detection_blob.cols; i++)
   {
@@ -129,7 +171,8 @@ void GetBoxesFromDetection(const cv::Mat& detection_blob,
 
     float max_class_confidence = -1.0f;
     int class_id = 0;
-    for (int c = class_start_col; c < attrs_count; ++c)
+
+    for (int c = class_start_col; c < N_SEG_MASK_COEFFS_INDEX_START; ++c)
     {
       const float score = detection_blob.at<float>(c, i);
       if (score > max_class_confidence)
@@ -149,6 +192,19 @@ void GetBoxesFromDetection(const cv::Mat& detection_blob,
 
     BoundingBox box(top_left_x, top_left_y, width, height, confidence, class_id);
     box.bbox = bbox;
+
+    std::vector<float> mask_coeffs;
+    mask_coeffs.reserve(N_SEG_MASK_COEFFS);
+
+    if (task_type == TaskType::SEGMENTATION)
+    {
+      for (size_t mask_idx = 0; mask_idx < N_SEG_MASK_COEFFS; ++mask_idx)
+      {
+        mask_coeffs.emplace_back(detection_blob.at<float>(N_SEG_MASK_COEFFS_INDEX_START + mask_idx, i));
+      }
+    }
+    box.mask_coefficients = std::move(mask_coeffs);
+
     boxes.emplace_back(std::move(box));
   }
 }
@@ -220,6 +276,130 @@ void RemoveLetterboxOffset(std::vector<BoundingBox>& boxes,
     box.height = std::max(0.0f, y2 - y1);
     box.bbox = cv::Rect(
       static_cast<int>(box.x), static_cast<int>(box.y), static_cast<int>(box.width), static_cast<int>(box.height));
+  }
+};
+
+void GetMasksFromTensor(cv::Mat& mask,
+                        std::vector<Ort::Value>& inference_output_tensor,
+                        int& proto_height,
+                        int& proto_width)
+{
+  if (inference_output_tensor.size() < 2)
+  {
+    throw std::runtime_error("Expected at least 2 output tensors for YOLO segmentation");
+  }
+
+  std::vector<int64_t> mask_shape = inference_output_tensor[1].GetTensorTypeAndShapeInfo().GetShape();
+
+  if (mask_shape.size() != kProtoMasksYoloOutputTensorRank)
+  {
+    throw std::runtime_error("Unexpected YOLO output tensor shape (expected 4 dims)");
+  }
+
+  proto_height = static_cast<int>(mask_shape[2]);
+  proto_width = static_cast<int>(mask_shape[3]);
+
+  float* output_data = inference_output_tensor[1].GetTensorMutableData<float>();
+  mask = cv::Mat(static_cast<int>(mask_shape[1]), static_cast<int>(mask_shape[2] * mask_shape[3]), CV_32F, output_data);
+};
+
+void ProcessYoloMasks(cv::Mat& masks,
+                      const cv::Mat& raw_proto_masks,
+                      std::vector<BoundingBox>& boxes,
+                      const cv::Size& original_image_size,
+                      int proto_height,
+                      int proto_width)
+{
+  std::cout << "Raw proto masks size: " << raw_proto_masks.size() << std::endl;
+  std::cout << "Number of bounding boxes: " << boxes.size() << std::endl;
+  std::cout << "Proto mask dimensions: " << proto_height << " x " << proto_width << std::endl;
+  const int num_boxes = static_cast<int>(boxes.size());
+  if (num_boxes == 0)
+  {
+    return;
+  }
+
+  const int num_proto_channels = raw_proto_masks.rows;
+
+  masks = cv::Mat(num_boxes, proto_height * proto_width, CV_32F);
+
+  for (int i = 0; i < num_boxes; ++i)
+  {
+    auto& box = boxes[i];
+    const std::vector<float>& mask_coeffs = box.mask_coefficients;
+
+    cv::Mat mask_flat = cv::Mat::zeros(proto_height * proto_width, 1, CV_32F);
+    for (int j = 0; j < num_proto_channels; ++j)
+    {
+      cv::Mat proto_channel(
+        proto_height, proto_width, CV_32F, raw_proto_masks.data + j * proto_height * proto_width * sizeof(float));
+      mask_flat += mask_coeffs[j] * proto_channel.reshape(1, proto_height * proto_width);
+    }
+
+    masks.row(i) = mask_flat.t();
+    box.mask = mask_flat.reshape(1, proto_height);
+  }
+};
+
+void ProcessYoloBoxes(std::vector<BoundingBox>& boxes,
+                      const cv::Mat& proto_masks,
+                      int proto_height,
+                      int proto_width,
+                      const cv::Size& model_input_size)
+{
+  if (boxes.empty() || proto_masks.empty())
+  {
+    return;
+  }
+
+  for (size_t i = 0; i < boxes.size(); ++i)
+  {
+    auto& box = boxes[i];
+
+    // Get the mask row index (stored during parse or NMS tracking)
+    if (i >= static_cast<size_t>(proto_masks.rows))
+    {
+      continue;
+    }
+
+    // Extract and reshape mask from flat row to 2D
+    cv::Mat mask_flat = proto_masks.row(i);
+    cv::Mat mask_proto = mask_flat.reshape(1, proto_height);
+
+    // Apply sigmoid activation
+    cv::Mat mask_sigmoid;
+    cv::exp(-mask_proto, mask_sigmoid);
+    mask_sigmoid = 1.0 / (1.0 + mask_sigmoid);
+
+    // Resize from proto size (e.g., 160x160) to model input size (e.g., 640x640)
+    cv::Mat mask_resized;
+    cv::resize(mask_sigmoid, mask_resized, model_input_size, 0, 0, cv::INTER_LINEAR);
+
+    // Crop mask to bounding box region (in model input space)
+    int x1 = std::max(0, static_cast<int>(box.x));
+    int y1 = std::max(0, static_cast<int>(box.y));
+    int x2 = std::min(model_input_size.width - 1, static_cast<int>(box.x + box.width));
+    int y2 = std::min(model_input_size.height - 1, static_cast<int>(box.y + box.height));
+
+    int crop_width = std::max(1, x2 - x1);
+    int crop_height = std::max(1, y2 - y1);
+
+    // Ensure box dimensions are at least 1 pixel when casting
+    int box_width_int = std::max(1, static_cast<int>(std::round(box.width)));
+    int box_height_int = std::max(1, static_cast<int>(std::round(box.height)));
+
+    if (crop_width > 0 && crop_height > 0 && box_width_int > 0 && box_height_int > 0)
+    {
+      cv::Rect crop_region(x1, y1, crop_width, crop_height);
+      cv::Mat mask_cropped = mask_resized(crop_region);
+
+      // Resize to bounding box size
+      cv::Mat mask_box;
+      cv::resize(mask_cropped, mask_box, cv::Size(box_width_int, box_height_int), 0, 0, cv::INTER_LINEAR);
+
+      // Apply threshold to get binary mask
+      cv::threshold(mask_box, box.mask, 0.5, 1.0, cv::THRESH_BINARY);
+    }
   }
 }
 

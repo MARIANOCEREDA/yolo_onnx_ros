@@ -14,12 +14,14 @@ set(HEADERS
     include/yolo_onnx/YoloORTInterface.hpp
     include/yolo_onnx/YoloORTDetector.hpp
     include/yolo_onnx/YoloUtils.hpp
+    include/yolo_onnx/YoloORTSegmentor.hpp
 )
 
 set(SOURCES
     src/YoloORTInterface.cpp
     src/YoloORTDetector.cpp
     src/YoloUtils.cpp
+    src/YoloORTSegmentor.cpp
 )
 
 add_library(${PROJECT_NAME} SHARED ${SOURCES} ${HEADERS})
