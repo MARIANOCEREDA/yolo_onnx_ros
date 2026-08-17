@@ -47,14 +47,15 @@ static void DrawLabeledBox(cv::Mat& image, const yolo_onnx::BoundingBox& box, co
 
 int main(int argc, char** argv)
 {
-  if (argc < 3)
+  if (argc < 4)
   {
-    std::cerr << "Usage: " << argv[0] << " <path_to_input_image> <detection|segmentation>" << std::endl;
+    std::cerr << "Usage: " << argv[0] << "<model_path> <path_to_input_image> <detection|segmentation>" << std::endl;
     return 1;
   }
 
-  const std::string input_image_path = argv[1];
-  const std::string task = argv[2];
+  const std::string model_path = argv[1];
+  const std::string input_image_path = argv[2];
+  const std::string task = argv[3];
 
   cv::Mat input_image = cv::imread(input_image_path);
   if (input_image.empty())
@@ -69,7 +70,7 @@ int main(int argc, char** argv)
 
   if (task == "segmentation")
   {
-    const std::string model_path = "/home/dev/ws/src/yolo_onnx_ros/models/yolo11n-seg.onnx";
+    std::cout << "Running YOLO segmentation..." << std::endl;
     yolo_onnx::YoloORTSegmentor segmentor(model_path, device, yolo_onnx::TaskType::SEGMENTATION);
     segmentor.Segment(input_image, bounding_boxes);
 
@@ -106,7 +107,6 @@ int main(int argc, char** argv)
   }
   else
   {
-    const std::string model_path = "/home/dev/ws/src/yolo_onnx_ros/models/yolo11n-det.onnx";
     yolo_onnx::YoloORTDetector detector(model_path, device, yolo_onnx::TaskType::DETECTION);
     detector.Detect(input_image, bounding_boxes);
 
