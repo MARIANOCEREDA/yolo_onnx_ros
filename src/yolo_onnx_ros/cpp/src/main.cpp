@@ -65,7 +65,7 @@ int main(int argc, char** argv)
     return 1;
   }
 
-  yolo_onnx::Device device(yolo_onnx::DeviceType::GPU, 0);  // Use GPU device 0. Change to CPU if needed.
+  yolo_onnx::Device device(yolo_onnx::DeviceType::CPU, 0);  // Use GPU device 0. Change to CPU if needed.
   std::vector<yolo_onnx::BoundingBox> bounding_boxes;
   cv::Mat vis_image = input_image.clone();
 

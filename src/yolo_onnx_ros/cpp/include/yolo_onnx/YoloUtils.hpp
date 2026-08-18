@@ -267,7 +267,6 @@ void GetMasksFromTensor(cv::Mat& mask,
 void ProcessYoloMasks(cv::Mat& masks,
                       const cv::Mat& raw_proto_masks,
                       std::vector<BoundingBox>& boxes,
-                      const cv::Size& original_image_size,
                       int proto_height,
                       int proto_width);
 

@@ -38,14 +38,20 @@ class YoloORTSegmentor : public YoloORTInterface
 
   cv::Size raw_input_image_size_{};  /// Original input image size before preprocessing.
   cv::Mat letterboxed_image_{};      /// Letterboxed image for inference.
+  
   cv::Mat masks_{};                  /// Segmentation masks for detected objects.
   cv::Mat raw_proto_masks_{};
+
   cv::Mat input_blob_{};                        /// Buffer backing input_tensor_
   cv::Mat output_blob_{};                       /// Buffer backing output_tensor_
+
   std::vector<BoundingBox> detected_bboxes_{};  /// Detected bounding boxes after postprocessing.
   std::vector<BoundingBox> filtered_bboxes_{};  /// Filtered bounding boxes after confidence thresholding.
   std::vector<BoundingBox> final_bboxes_{};     /// Final bounding boxes after NMS.
+
   int proto_masks_height_{0};                   /// Height of the proto masks.
   int proto_masks_width_{0};                    /// Width of the proto masks.
+
+  std::vector<cv::Rect> nms_input_boxes_{};  /// Bounding boxes used for NMS.
 };
 }  // namespace yolo_onnx

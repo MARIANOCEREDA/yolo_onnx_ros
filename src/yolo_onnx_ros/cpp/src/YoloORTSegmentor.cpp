@@ -53,7 +53,7 @@ void YoloORTSegmentor::Postprocess(const cv::Mat& input_image, std::vector<Ort::
   GetMasksFromTensor(raw_proto_masks_, output_tensor, proto_masks_height_, proto_masks_width_);
 
   ProcessYoloMasks(
-    masks_, raw_proto_masks_, final_bboxes_, input_image.size(), proto_masks_height_, proto_masks_width_);
+    masks_, raw_proto_masks_, final_bboxes_, proto_masks_height_, proto_masks_width_);
 
   ProcessYoloBoxes(
     final_bboxes_, masks_, proto_masks_height_, proto_masks_width_, cv::Size(INPUT_IMAGE_SIZE, INPUT_IMAGE_SIZE));

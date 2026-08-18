@@ -253,8 +253,8 @@ void RemoveLetterboxOffset(std::vector<BoundingBox>& boxes,
                            const cv::Size& original_image_size,
                            const cv::Size& letterboxed_image_size)
 {
-  const float scale_x = static_cast<float>(input_yolo_size.width) / static_cast<float>(original_image_size.width);
-  const float scale_y = static_cast<float>(input_yolo_size.height) / static_cast<float>(original_image_size.height);
+  const float scale_x = static_cast<float>(input_yolo_size.width) / original_image_size.width;
+  const float scale_y = static_cast<float>(input_yolo_size.height) / original_image_size.height;
   const float scale = std::min(scale_x, scale_y);
 
   const float pad_x = (static_cast<float>(input_yolo_size.width) - original_image_size.width * scale) * 0.5f;
@@ -306,7 +306,6 @@ void GetMasksFromTensor(cv::Mat& mask,
 void ProcessYoloMasks(cv::Mat& masks,
                       const cv::Mat& raw_proto_masks,
                       std::vector<BoundingBox>& boxes,
-                      const cv::Size& original_image_size,
                       int proto_height,
                       int proto_width)
 {
@@ -329,7 +328,7 @@ void ProcessYoloMasks(cv::Mat& masks,
     for (int j = 0; j < num_proto_channels; ++j)
     {
       cv::Mat proto_channel(
-        proto_height, proto_width, CV_32F, raw_proto_masks.data + j * proto_height * proto_width * sizeof(float));
+        proto_width, proto_height, CV_32F, raw_proto_masks.data + j * proto_height * proto_width * sizeof(float));
       mask_flat += mask_coeffs[j] * proto_channel.reshape(1, proto_height * proto_width);
     }
 
