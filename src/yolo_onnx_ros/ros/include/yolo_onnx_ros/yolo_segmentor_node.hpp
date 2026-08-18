@@ -116,12 +116,12 @@ class YoloSegmentorNode : public rclcpp_lifecycle::LifecycleNode
       vision_msgs::msg::Detection2DArray& detection_msg);
 
   /**
-   * @brief Create a binary segmentation mask.
+   * @brief Create an RGBA overlay mask for the detected objects.
    * @param image_size Size of the output image (should match the original input image).
    * @param detections Detector outputs with per-instance masks.
-   * @return Single-channel (MONO8) image: 255 for segmented pixels, 0 for background.
+   * @return 4-channel (RGBA) image: green for segmented pixels with semi-transparency.
    */
-  static cv::Mat CreateBinaryMask(
+  static cv::Mat CreateOverlayMask(
       const cv::Size& image_size,
       const std::vector<yolo_onnx::BoundingBox>& detections);
 
