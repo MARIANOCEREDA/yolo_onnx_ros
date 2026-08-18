@@ -41,7 +41,7 @@ Ort::SessionOptions YoloORTInterface::CreateSessionOptions()
   session_options.SetGraphOptimizationLevel(ort_config_.optimization_level);
   if (device_.type == DeviceType::GPU)
   {
-    Ort::GetApi().CreateCUDAProviderOptions(&cudaProvider_);
+    Ort::GetApi().CreateCUDAProviderOptions(&cuda_provider_);
     /**
      * NOTE:
      * 1. ORT (ONNX Runtime) knows which matrix operations should be performed, but it does not know
@@ -51,7 +51,7 @@ Ort::SessionOptions YoloORTInterface::CreateSessionOptions()
      * kernels, manage GPU memory, and optimize data transfer between CPU and GPU.
      * Check the tutorial: https://youtu.be/Wp5PaRpudlk?t=181
      */
-    session_options.AppendExecutionProvider_CUDA_V2(*cudaProvider_);
+    session_options.AppendExecutionProvider_CUDA_V2(*cuda_provider_);
   }
 
   return session_options;

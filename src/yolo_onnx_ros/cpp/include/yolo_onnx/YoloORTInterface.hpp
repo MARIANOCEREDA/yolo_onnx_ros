@@ -32,9 +32,9 @@ class YoloORTInterface
    */
   ~YoloORTInterface()
   {
-    if (cudaProvider_)
+    if (cuda_provider_ != nullptr)
     {
-      Ort::GetApi().ReleaseCUDAProviderOptions(cudaProvider_);
+      Ort::GetApi().ReleaseCUDAProviderOptions(cuda_provider_);
     }
   }
 
@@ -122,7 +122,7 @@ class YoloORTInterface
 
   Ort::SessionOptions session_options_{nullptr};      /// Session options used to construct the runtime session.
   Ort::Session session_{nullptr};                     /// Active ONNX Runtime session.
-  OrtCUDAProviderOptionsV2* cudaProvider_ = nullptr;  /// CUDA provider configuration handle, set only for GPU mode.
+  OrtCUDAProviderOptionsV2* cuda_provider_ = nullptr;  /// CUDA provider configuration handle, set only for GPU mode.
 
   /// Owns the allocated name strings — must outlive the const char* vectors below.
   std::vector<Ort::AllocatedStringPtr> kExpectedYoloDetectionTensorShape{};

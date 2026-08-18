@@ -2,17 +2,18 @@
 #include "yolo_onnx/YoloORTSegmentor.hpp"
 
 static const std::array<std::string, 80> kCocoClassNames = {
-  "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat",
-  "traffic light", "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat", "dog",
-  "horse", "sheep", "cow", "elephant", "bear", "zebra", "giraffe", "backpack", "umbrella",
-  "handbag", "tie", "suitcase", "frisbee", "skis", "snowboard", "sports ball", "kite",
-  "baseball bat", "baseball glove", "skateboard", "surfboard", "tennis racket", "bottle",
-  "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple", "sandwich",
-  "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair", "couch",
-  "potted plant", "bed", "dining table", "toilet", "tv", "laptop", "mouse", "remote",
-  "keyboard", "cell phone", "microwave", "oven", "toaster", "sink", "refrigerator", "book",
-  "clock", "vase", "scissors", "teddy bear", "hair drier", "toothbrush"
-};
+  "person",         "bicycle",    "car",           "motorcycle",    "airplane",     "bus",           "train",
+  "truck",          "boat",       "traffic light", "fire hydrant",  "stop sign",    "parking meter", "bench",
+  "bird",           "cat",        "dog",           "horse",         "sheep",        "cow",           "elephant",
+  "bear",           "zebra",      "giraffe",       "backpack",      "umbrella",     "handbag",       "tie",
+  "suitcase",       "frisbee",    "skis",          "snowboard",     "sports ball",  "kite",          "baseball bat",
+  "baseball glove", "skateboard", "surfboard",     "tennis racket", "bottle",       "wine glass",    "cup",
+  "fork",           "knife",      "spoon",         "bowl",          "banana",       "apple",         "sandwich",
+  "orange",         "broccoli",   "carrot",        "hot dog",       "pizza",        "donut",         "cake",
+  "chair",          "couch",      "potted plant",  "bed",           "dining table", "toilet",        "tv",
+  "laptop",         "mouse",      "remote",        "keyboard",      "cell phone",   "microwave",     "oven",
+  "toaster",        "sink",       "refrigerator",  "book",          "clock",        "vase",          "scissors",
+  "teddy bear",     "hair drier", "toothbrush"};
 
 static cv::Scalar ClassColor(int class_id)
 {
@@ -25,13 +26,11 @@ static cv::Scalar ClassColor(int class_id)
 
 static void DrawLabeledBox(cv::Mat& image, const yolo_onnx::BoundingBox& box, const cv::Scalar& color)
 {
-  const std::string& class_name =
-    (box.class_id >= 0 && box.class_id < static_cast<int>(kCocoClassNames.size()))
-      ? kCocoClassNames[box.class_id]
-      : "unknown";
+  const std::string& class_name = (box.class_id >= 0 && box.class_id < static_cast<int>(kCocoClassNames.size()))
+                                    ? kCocoClassNames[box.class_id]
+                                    : "unknown";
 
-  const std::string label =
-    class_name + " " + std::to_string(static_cast<int>(box.confidence * 100)) + "%";
+  const std::string label = class_name + " " + std::to_string(static_cast<int>(box.confidence * 100)) + "%";
 
   cv::rectangle(image, box.bbox, color, 2);
 
@@ -41,21 +40,23 @@ static void DrawLabeledBox(cv::Mat& image, const yolo_onnx::BoundingBox& box, co
   cv::rectangle(image,
                 label_origin + cv::Point(0, baseline),
                 label_origin + cv::Point(text_size.width, -text_size.height),
-                color, cv::FILLED);
+                color,
+                cv::FILLED);
   cv::putText(image, label, label_origin, cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 0), 1);
 }
 
 int main(int argc, char** argv)
 {
-  if (argc < 4)
+  if (argc < 5)
   {
-    std::cerr << "Usage: " << argv[0] << "<model_path> <path_to_input_image> <detection|segmentation>" << std::endl;
+    std::cerr << "Usage: " << argv[0] << " <model_path> <path_to_input_image> <detection|segmentation> <n_inferences>" << std::endl;
     return 1;
   }
 
   const std::string model_path = argv[1];
   const std::string input_image_path = argv[2];
   const std::string task = argv[3];
+  const int n_inferences = std::stoi(argv[4]);  // Number of inferences to run for timing
 
   cv::Mat input_image = cv::imread(input_image_path);
   if (input_image.empty())
@@ -64,15 +65,25 @@ int main(int argc, char** argv)
     return 1;
   }
 
-  yolo_onnx::Device device(yolo_onnx::DeviceType::CPU);
+  yolo_onnx::Device device(yolo_onnx::DeviceType::GPU, 0);  // Use GPU device 0. Change to CPU if needed.
   std::vector<yolo_onnx::BoundingBox> bounding_boxes;
   cv::Mat vis_image = input_image.clone();
 
+  auto start_time = std::chrono::high_resolution_clock::now();
+  auto end_time = std::chrono::high_resolution_clock::now();
+
   if (task == "segmentation")
   {
-    std::cout << "Running YOLO segmentation..." << std::endl;
     yolo_onnx::YoloORTSegmentor segmentor(model_path, device, yolo_onnx::TaskType::SEGMENTATION);
-    segmentor.Segment(input_image, bounding_boxes);
+
+    for (int i = 0; i < n_inferences; ++i)
+    {
+      start_time = std::chrono::high_resolution_clock::now();
+      segmentor.Segment(input_image, bounding_boxes);
+      end_time = std::chrono::high_resolution_clock::now();
+      std::chrono::duration<double, std::milli> elapsed = end_time - start_time;
+      std::cout << "Inference and post-processing time: " << elapsed.count() << " ms" << std::endl;
+    }
 
     // Build a colored mask overlay for all instances.
     cv::Mat overlay = vis_image.clone();
@@ -108,9 +119,15 @@ int main(int argc, char** argv)
   else
   {
     yolo_onnx::YoloORTDetector detector(model_path, device, yolo_onnx::TaskType::DETECTION);
-    detector.Detect(input_image, bounding_boxes);
 
-  std::cout << "Number of detected bounding boxes: " << bounding_boxes.size() << std::endl;
+    for (int i = 0; i < n_inferences; ++i)
+    {
+      start_time = std::chrono::high_resolution_clock::now();
+      detector.Detect(input_image, bounding_boxes);
+      end_time = std::chrono::high_resolution_clock::now();
+      std::chrono::duration<double, std::milli> elapsed = end_time - start_time;
+      std::cout << "Inference and post-processing time: " << elapsed.count() << " ms" << std::endl;
+    }
 
     for (const auto& box : bounding_boxes)
     {
@@ -119,7 +136,6 @@ int main(int argc, char** argv)
 
     cv::imshow("YOLO Detections", vis_image);
   }
-
   cv::waitKey(0);
   return 0;
 }

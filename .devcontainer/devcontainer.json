@@ -1,6 +1,6 @@
 {
     "name": "Dev container YOLO ONNX ROS2",
-    "dockerFile": "../docker/Dockerfile",
+    "dockerFile": "../docker/Dockerfile.gpu",
     "workspaceFolder": "/home/dev/ws",
     "customizations": {
         "vscode": {

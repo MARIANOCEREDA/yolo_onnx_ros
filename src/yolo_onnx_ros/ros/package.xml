@@ -3,9 +3,16 @@
 <package format="3">
   <name>yolo_onnx_ros</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
+  <description>YOLO ONNX ROS node for object detection and segmentation</description>
   <maintainer email="gmarianocereda@gmail.com">dev</maintainer>
-  <license>TODO: License declaration</license>
+  <license>MIT</license>
+
+  <depend>rclcpp</depend>
+  <depend>rclcpp_lifecycle</depend>
+  <depend>sensor_msgs</depend>
+  <depend>vision_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>cv_bridge</depend>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 

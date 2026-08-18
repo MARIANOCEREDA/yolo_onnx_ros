@@ -86,15 +86,6 @@ RUN addgroup --gid $GID $GROUP \
     && echo "source /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash" >> /home/$USER/.bashrc \
     && echo "export QT_X11_NO_MITSHM=1" >> /home/$USER/.bashrc
 
-COPY docker/fixuid_config.yml /etc/fixuid/config.yml
-RUN /bin/bash -c '\
-    ARCH=`uname -m` && if [ "$ARCH" == "aarch64" ]; then FIXUID_ARCH="arm64"; else FIXUID_ARCH="amd64"; fi \
-    && curl -SsL https://github.com/boxboat/fixuid/releases/download/v0.6.0/fixuid-0.6.0-linux-$FIXUID_ARCH.tar.gz | tar -C /usr/local/bin -xzf - \
-    && chmod 4755 /usr/local/bin/fixuid \
-    && cd /etc/fixuid \
-    && sed -i "s/_USER_/$USER/" config.yml \
-    && sed -i "s/_GROUP_/$GROUP/" config.yml'
-
 COPY --from=ghcr.io/astral-sh/uv:0.6.2 /uv /uvx /bin/
 
 USER $USER
@@ -122,11 +113,5 @@ RUN cd /tmp \
     && sudo cp -r onnxruntime-linux-x64-gpu-${ONNXRUNTIME_VERSION}/lib/* /usr/local/lib/ \
     && sudo ldconfig \
     && rm -rf /tmp/onnxruntime-linux-x64-gpu-${ONNXRUNTIME_VERSION}*
-
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    sudo apt update \
-    && rosdep update \
-    && rosdep install --from-paths src --ignore-src --rosdistro $ROS_DISTRO -y
 
 ENTRYPOINT [ "/bin/bash" ]

@@ -15,7 +15,7 @@ class YoloORTSegmentor : public YoloORTInterface
  public:
   YoloORTSegmentor(std::string model_path,
                    Device device,
-                   TaskType task_type,
+                   TaskType task_type = TaskType::SEGMENTATION,
                    YoloThresholds yolo_thresholds = YoloThresholds(),
                    ORTConfig config = ORTConfig())
     : YoloORTInterface(model_path, device, task_type, config), yolo_thresholds_(yolo_thresholds) {};

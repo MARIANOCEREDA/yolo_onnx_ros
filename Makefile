@@ -2,17 +2,17 @@ ROS_DISTRO   ?= jazzy
 ROS_SETUP     = /opt/ros/$(ROS_DISTRO)/setup.bash
 
 WS_ROOT      := $(shell pwd)
-YOLO_ONNX_ONNX_CPP_DIR := $(WS_ROOT)/src/yolo_onnx_ros/cpp
-YOLO_ONNX_CPP_BUILD_DIR := $(YOLO_ONNX_ONNX_CPP_DIR)/build
+YOLO_ONNX_CPP_DIR := $(WS_ROOT)/src/yolo_onnx_ros/cpp
+YOLO_ONNX_CPP_BUILD_DIR := $(YOLO_ONNX_CPP_DIR)/build
 
 JOBS         ?= $(shell nproc)
 
-.PHONY: help build-cpp-library build-ros2 build-all cleanONNX_-cpp clean-ros2 clean
+.PHONY: help build-cpp build-ros2 build-all clean-cpp clean-ros2 clean
 
 help:
 	@echo ""
 	@echo "Available targets:"
-	@echo "  build-cpp-library  Build the yolo_onnx_ros C++ library only (CMake)"
+	@echo "  build-cpp  Build the yolo_onnx_ros C++ library only (CMake)"
 	@echo "  build-ros2         Build all ROS2 packages (colcon)"
 	@echo "  build-all          Build C++ library then ROS2 packages"
 	@echo "  clean-cpp          Remove the C++ library build directory"
@@ -27,7 +27,7 @@ help:
 build-cpp:
 	@echo "==> Building yolo_onnx_ros C++ library..."
 	@mkdir -p $(YOLO_ONNX_CPP_BUILD_DIR)
-	@cd $(YOLO_ONNX_CPP_BUILD_DIR) && cmake .. -DCMAKE_BUILD_TYPE=Release && make -j$(JOBS)
+	@cd $(YOLO_ONNX_CPP_BUILD_DIR) && cmake .. -DCMAKE_BUILD_TYPE=Release && make -j$(JOBS) && cmake --install .
 	@echo "==> C++ library build complete."
 
 build-cpp-valgrind:
@@ -48,8 +48,8 @@ build-ros2:
 	          colcon build \
 	            --symlink-install \
 	            --parallel-workers $(JOBS) \
-	            --packages-select yolo_onnx_ros image_file_publisher \
-	            --cmake-args -DYOLO_ONNX_CPP_BUILD_DIR=$(YOLO_ONNX_CPP_BUILD_DIR) \
+	            --packages-select yolo_onnx_ros \
+	            --cmake-args -DYOLO_CPP_PREFIX=$(YOLO_ONNX_CPP_BUILD_DIR) \
 	            --event-handlers console_cohesion+"
 	@echo "==> ROS2 build complete."
 
@@ -60,7 +60,7 @@ clean-ros2:
 
 build-all:
 	@echo "==> Building all components..."
-	@$(MAKE) build-cpp-library
+	@$(MAKE) build-cpp
 	@$(MAKE) build-ros2
 	@echo "==> All components built successfully."
 

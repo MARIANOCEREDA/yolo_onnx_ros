@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.22.1)
 project(yolo_onnx)
 
+if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+    set(CMAKE_INSTALL_PREFIX "${CMAKE_BINARY_DIR}" CACHE PATH "Default install prefix" FORCE)
+endif()
+
 find_package(OpenCV REQUIRED)
 
 
@@ -24,19 +28,17 @@ set(SOURCES
     src/YoloORTSegmentor.cpp
 )
 
+# Target library
 add_library(${PROJECT_NAME} SHARED ${SOURCES} ${HEADERS})
-
-add_executable(inference_test src/main.cpp)
-
 target_include_directories(${PROJECT_NAME} PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
 )
-
 target_link_libraries(${PROJECT_NAME} PUBLIC ${OpenCV_LIBS} onnxruntime)
 
+# Target inference test
+add_executable(inference_test src/main.cpp)
 target_link_libraries(inference_test PRIVATE ${PROJECT_NAME} ${OpenCV_LIBS})
-
 target_include_directories(inference_test PRIVATE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )

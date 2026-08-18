@@ -11,7 +11,7 @@ void BlobToONNXTensor(const cv::Mat& blob, Ort::Value& tensor, const InputShape&
   Ort::MemoryInfo memory_info{nullptr};
   if (device.type == DeviceType::GPU)
   {
-    memory_info = Ort::MemoryInfo("Cuda", OrtDeviceAllocator, device.device_id, OrtMemTypeDefault);
+    memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeCPUInput);
   }
   else
   {
@@ -310,9 +310,6 @@ void ProcessYoloMasks(cv::Mat& masks,
                       int proto_height,
                       int proto_width)
 {
-  std::cout << "Raw proto masks size: " << raw_proto_masks.size() << std::endl;
-  std::cout << "Number of bounding boxes: " << boxes.size() << std::endl;
-  std::cout << "Proto mask dimensions: " << proto_height << " x " << proto_width << std::endl;
   const int num_boxes = static_cast<int>(boxes.size());
   if (num_boxes == 0)
   {

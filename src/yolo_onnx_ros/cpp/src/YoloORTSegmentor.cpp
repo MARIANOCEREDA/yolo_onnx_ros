@@ -15,7 +15,7 @@ void YoloORTSegmentor::Segment(const cv::Mat& input_image, std::vector<BoundingB
   auto& session = GetSession();
   auto& input_node_names = GetInputNames();
   auto& output_node_names = GetOutputNames();
-
+  
   std::vector<Ort::Value> output_tensors =
     session.Run(Ort::RunOptions{nullptr}, input_node_names.data(), &input_tensor_, 1, output_node_names.data(), 2);
 
@@ -49,11 +49,9 @@ void YoloORTSegmentor::Postprocess(const cv::Mat& input_image, std::vector<Ort::
 
   final_bboxes_.clear();
   NonMaxSuppression(filtered_bboxes_, final_bboxes_, yolo_thresholds_.nms_threshold);
-
-  raw_proto_masks_.setTo(0);
+  
   GetMasksFromTensor(raw_proto_masks_, output_tensor, proto_masks_height_, proto_masks_width_);
 
-  masks_.setTo(0);
   ProcessYoloMasks(
     masks_, raw_proto_masks_, final_bboxes_, input_image.size(), proto_masks_height_, proto_masks_width_);
 
