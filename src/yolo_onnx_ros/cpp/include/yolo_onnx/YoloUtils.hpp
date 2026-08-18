@@ -9,7 +9,7 @@ namespace yolo_onnx
 
 struct YoloThresholds
 {
-  float confidence_threshold = 0.70f;  ///< Minimum confidence score to consider a detection valid.
+  float confidence_threshold = 0.65f;  ///< Minimum confidence score to consider a detection valid.
   float nms_threshold = 0.50f;         ///< Non-Maximum Suppression (NMS) threshold for filtering overlapping boxes.
 };
 
