@@ -159,10 +159,10 @@ void YoloSegmentorNode::ToVisionMsgsDetections(const std::vector<yolo_onnx::Boun
   }
 }
 
-cv::Mat YoloSegmentorNode::CreateOverlayMask(const cv::Size& image_size,
+cv::Mat YoloSegmentorNode::CreateBinaryMask(const cv::Size& image_size,
                                             const std::vector<yolo_onnx::BoundingBox>& detections)
 {
-  cv::Mat output(image_size, CV_8UC4, cv::Scalar(0, 0, 0));
+  cv::Mat output(image_size, CV_8UC1, cv::Scalar(0));
 
   for (const auto& detection : detections)
   {
@@ -198,7 +198,7 @@ cv::Mat YoloSegmentorNode::CreateOverlayMask(const cv::Size& image_size,
       {
         if (mask_resized.at<float>(r, c) > 0.5f)
         {
-          roi.at<cv::Vec4b>(r, c) = cv::Vec4b(0, 255, 0, 127);
+          roi.at<uint8_t>(r, c) = 255;
         }
       }
     }
@@ -274,13 +274,13 @@ void YoloSegmentorNode::RunInferenceAsync(std::stop_token stop_token)
       detection_pub_->publish(detection_msg);
     }
 
-    // Publish segmentation mask as RGBA overlay (green, semi-transparent)
+    // Publish class-coloured segmentation mask (black background)
     if (mask_pub_ && mask_pub_->is_activated())
     {
-      cv::Mat rgba_mask = CreateOverlayMask(input_inference_image.size(), detections);
+      cv::Mat binary_mask = CreateBinaryMask(input_inference_image.size(), detections);
 
       auto mask_msg =
-        cv_bridge::CvImage(input_image_msg->header, sensor_msgs::image_encodings::RGBA8, rgba_mask).toImageMsg();
+        cv_bridge::CvImage(input_image_msg->header, sensor_msgs::image_encodings::MONO8, binary_mask).toImageMsg();
 
       mask_pub_->publish(*mask_msg);
     }
