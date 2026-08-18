@@ -274,13 +274,22 @@ void YoloSegmentorNode::RunInferenceAsync(std::stop_token stop_token)
       detection_pub_->publish(detection_msg);
     }
 
-    // Publish class-coloured segmentation mask (black background)
+    // Publish segmentation mask as RGBA overlay (green, semi-transparent)
     if (mask_pub_ && mask_pub_->is_activated())
     {
       cv::Mat binary_mask = CreateBinaryMask(input_inference_image.size(), detections);
 
+      cv::Mat rgba_mask;
+      std::vector<cv::Mat> channels = {
+        cv::Mat::zeros(binary_mask.size(), CV_8UC1),  // R
+        binary_mask.clone(),                           // G
+        cv::Mat::zeros(binary_mask.size(), CV_8UC1),  // B
+        binary_mask / 2                                // A (~50% opacity where mask=255)
+      };
+      cv::merge(channels, rgba_mask);
+
       auto mask_msg =
-        cv_bridge::CvImage(input_image_msg->header, sensor_msgs::image_encodings::MONO8, binary_mask).toImageMsg();
+        cv_bridge::CvImage(input_image_msg->header, sensor_msgs::image_encodings::RGBA8, rgba_mask).toImageMsg();
 
       mask_pub_->publish(*mask_msg);
     }
