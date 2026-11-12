@@ -40,11 +40,6 @@ add_library(${COMPONENT_TARGET_NAME} SHARED
   src/yolo_segmentor_node.cpp
   include/yolo_onnx_ros/yolo_segmentor_node.hpp)
 
-target_include_directories(${COMPONENT_TARGET_NAME} PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  $<INSTALL_INTERFACE:include>
-)
-
 ament_target_dependencies(${COMPONENT_TARGET_NAME}
   rclcpp
   rclcpp_components
@@ -54,6 +49,12 @@ ament_target_dependencies(${COMPONENT_TARGET_NAME}
   cv_bridge
   geometry_msgs
 )
+
+target_include_directories(${COMPONENT_TARGET_NAME} PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+
 
 target_link_libraries(${COMPONENT_TARGET_NAME}
   yolo_onnx::yolo_onnx
@@ -102,12 +103,5 @@ install(
 install(FILES "${YOLO_CPP_PREFIX}/lib/libyolo_onnx.so"
     DESTINATION lib
 )
-
-if(BUILD_TESTING)
-  find_package(ament_lint_auto REQUIRED)
-  set(ament_cmake_copyright_FOUND TRUE)
-  set(ament_cmake_cpplint_FOUND TRUE)
-  ament_lint_auto_find_test_dependencies()
-endif()
 
 ament_package()

@@ -13,6 +13,7 @@ YoloSegmentorNode::YoloSegmentorNode(const rclcpp::NodeOptions& options)
   this->declare_parameter<std::string>("input_image_topic", "/image_rect");
   this->declare_parameter<std::string>("output_mask_topic", "/segmentation/mask");
   this->declare_parameter<std::string>("output_detections_topic", "/segmentation/detections");
+  this->declare_parameter<bool>("display_latency", false);
 }
 
 CallbackReturn YoloSegmentorNode::on_configure(const rclcpp_lifecycle::State&)
@@ -221,6 +222,7 @@ void YoloSegmentorNode::RunInferenceAsync(std::stop_token stop_token)
 {
   while (rclcpp::ok() && !stop_token.stop_requested())
   {
+    auto start_inference_time = std::chrono::steady_clock::now();
     sensor_msgs::msg::Image::SharedPtr input_image_msg{nullptr};
     {
       std::unique_lock<std::mutex> lock(input_image_mutex_);
@@ -271,6 +273,12 @@ void YoloSegmentorNode::RunInferenceAsync(std::stop_token stop_token)
     this->ToVisionMsgsDetections(detections, detection_msg);
     if (detection_pub_ && detection_pub_->is_activated())
     {
+      if (display_latency_)
+      {
+        auto end_inference_time = std::chrono::steady_clock::now();
+        auto elapsed_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_inference_time - start_inference_time).count();
+        RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 1000, "Inference took %ld ms", elapsed_time);
+      }
       detection_pub_->publish(detection_msg);
     }
 
@@ -282,23 +290,18 @@ void YoloSegmentorNode::RunInferenceAsync(std::stop_token stop_token)
       auto mask_msg =
         cv_bridge::CvImage(input_image_msg->header, sensor_msgs::image_encodings::MONO8, binary_mask).toImageMsg();
 
+      auto end_mask_time = std::chrono::steady_clock::now();
+      if (display_latency_)
+      {
+        auto elapsed_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_mask_time - start_inference_time).count();
+        RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 1000, "Mask creation took %ld ms", elapsed_time);
+      }
       mask_pub_->publish(*mask_msg);
     }
   }
 }
 
 }  // namespace yolo_onnx_ros
-
-int main(int argc, char* argv[])
-{
-  rclcpp::init(argc, argv);
-  rclcpp::executors::SingleThreadedExecutor executor;
-  auto node = std::make_shared<yolo_onnx_ros::YoloSegmentorNode>(rclcpp::NodeOptions());
-  executor.add_node(node->get_node_base_interface());
-  executor.spin();
-  rclcpp::shutdown();
-  return 0;
-};
 
 #include "rclcpp_components/register_node_macro.hpp"
 RCLCPP_COMPONENTS_REGISTER_NODE(yolo_onnx_ros::YoloSegmentorNode)
