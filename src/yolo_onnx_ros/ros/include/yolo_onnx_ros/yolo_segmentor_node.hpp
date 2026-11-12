@@ -135,6 +135,9 @@ class YoloSegmentorNode : public rclcpp_lifecycle::LifecycleNode
   std::string model_path_;
   std::string device_type_str_;
   yolo_onnx::DeviceType device_type_;
+  bool display_latency_;
+
+  std::vector<std::chrono::milliseconds> inference_times_ms_;  // Stores inference times for latency measurement.
 
   // Input Image multi-threading safety variables
   std::atomic<bool> new_image_available_{false};

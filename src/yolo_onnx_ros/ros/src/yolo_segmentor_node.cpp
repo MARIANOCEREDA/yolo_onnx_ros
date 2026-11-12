@@ -71,6 +71,8 @@ CallbackReturn YoloSegmentorNode::on_activate(const rclcpp_lifecycle::State&)
   image_sub_ = this->create_subscription<sensor_msgs::msg::Image>(
     input_image_topic, 10, std::bind(&YoloSegmentorNode::ImageCallback, this, std::placeholders::_1));
 
+  display_latency_ = this->get_parameter("display_latency").as_bool();
+
   inference_thread_ = std::jthread([this](std::stop_token stop_token) { RunInferenceAsync(stop_token); });
 
   RCLCPP_INFO(get_logger(), "Activated YoloSegmentorNode...");
@@ -277,7 +279,13 @@ void YoloSegmentorNode::RunInferenceAsync(std::stop_token stop_token)
       {
         auto end_inference_time = std::chrono::steady_clock::now();
         auto elapsed_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_inference_time - start_inference_time).count();
-        RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 1000, "Inference took %ld ms", elapsed_time);
+        inference_times_ms_.push_back(std::chrono::milliseconds(elapsed_time));
+        if (inference_times_ms_.size() > 5)
+        {
+          inference_times_ms_.erase(inference_times_ms_.begin());
+        }
+        float average_inference_time = std::accumulate(inference_times_ms_.begin(), inference_times_ms_.end(), std::chrono::milliseconds(0)).count() / inference_times_ms_.size();
+        RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 1000, "Inference took %ld ms", static_cast<long>(average_inference_time));
       }
       detection_pub_->publish(detection_msg);
     }
@@ -290,12 +298,6 @@ void YoloSegmentorNode::RunInferenceAsync(std::stop_token stop_token)
       auto mask_msg =
         cv_bridge::CvImage(input_image_msg->header, sensor_msgs::image_encodings::MONO8, binary_mask).toImageMsg();
 
-      auto end_mask_time = std::chrono::steady_clock::now();
-      if (display_latency_)
-      {
-        auto elapsed_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_mask_time - start_inference_time).count();
-        RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 1000, "Mask creation took %ld ms", elapsed_time);
-      }
       mask_pub_->publish(*mask_msg);
     }
   }
