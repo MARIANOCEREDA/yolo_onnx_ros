@@ -3,6 +3,9 @@
 #include <cv_bridge/cv_bridge.hpp>
 #include <sensor_msgs/image_encodings.hpp>
 
+#include <chrono>
+#include <numeric>
+
 namespace yolo_onnx_ros
 {
 YoloSegmentorNode::YoloSegmentorNode(const rclcpp::NodeOptions& options)
@@ -224,7 +227,6 @@ void YoloSegmentorNode::RunInferenceAsync(std::stop_token stop_token)
 {
   while (rclcpp::ok() && !stop_token.stop_requested())
   {
-    auto start_inference_time = std::chrono::steady_clock::now();
     sensor_msgs::msg::Image::SharedPtr input_image_msg{nullptr};
     {
       std::unique_lock<std::mutex> lock(input_image_mutex_);
@@ -245,6 +247,9 @@ void YoloSegmentorNode::RunInferenceAsync(std::stop_token stop_token)
       input_image_msg = std::move(latest_image_);
       new_image_available_ = false;
     }
+
+    // Start timing only after a frame is dequeued, so idle wait time is excluded.
+    const auto start_inference_time = std::chrono::steady_clock::now();
 
     cv::Mat input_inference_image;
     try
@@ -268,26 +273,32 @@ void YoloSegmentorNode::RunInferenceAsync(std::stop_token stop_token)
     }
     const auto& detections = latest_detections_;
 
-    vision_msgs::msg::Detection2DArray detection_msg;
-    detection_msg.header.stamp = input_image_msg->header.stamp;
-    detection_msg.header.frame_id = input_image_msg->header.frame_id;
+    auto detection_msg = std::make_unique<vision_msgs::msg::Detection2DArray>();
+    detection_msg->header.stamp = input_image_msg->header.stamp;
+    detection_msg->header.frame_id = input_image_msg->header.frame_id;
 
-    this->ToVisionMsgsDetections(detections, detection_msg);
+    this->ToVisionMsgsDetections(detections, *detection_msg);
     if (detection_pub_ && detection_pub_->is_activated())
     {
       if (display_latency_)
       {
-        auto end_inference_time = std::chrono::steady_clock::now();
-        auto elapsed_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_inference_time - start_inference_time).count();
-        inference_times_ms_.push_back(std::chrono::milliseconds(elapsed_time));
+        // Processing time: dequeue -> detections ready (convert + preprocess + inference + postprocess).
+        const auto processing_ms =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start_inference_time).count();
+        // End-to-end: image capture stamp -> now (includes transport, queueing and upstream nodes).
+        const double end_to_end_ms = (this->now() - rclcpp::Time(input_image_msg->header.stamp)).seconds() * 1e3;
+
+        inference_times_ms_.push_back(processing_ms);
         if (inference_times_ms_.size() > 5)
         {
           inference_times_ms_.erase(inference_times_ms_.begin());
         }
-        float average_inference_time = std::accumulate(inference_times_ms_.begin(), inference_times_ms_.end(), std::chrono::milliseconds(0)).count() / inference_times_ms_.size();
-        RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 1000, "Inference took %ld ms", static_cast<long>(average_inference_time));
+        const double average_processing_ms =
+            std::accumulate(inference_times_ms_.begin(), inference_times_ms_.end(), 0.0) / inference_times_ms_.size();
+        RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 1000, "Processing: %.1f ms (avg of last %zu) | end-to-end: %.1f ms",
+                             average_processing_ms, inference_times_ms_.size(), end_to_end_ms);
       }
-      detection_pub_->publish(detection_msg);
+      detection_pub_->publish(std::move(detection_msg));
     }
 
     // Publish class-coloured segmentation mask (black background)
@@ -295,10 +306,16 @@ void YoloSegmentorNode::RunInferenceAsync(std::stop_token stop_token)
     {
       cv::Mat binary_mask = CreateBinaryMask(input_inference_image.size(), detections);
 
-      auto mask_msg =
-        cv_bridge::CvImage(input_image_msg->header, sensor_msgs::image_encodings::MONO8, binary_mask).toImageMsg();
+      auto mask_msg = std::make_unique<sensor_msgs::msg::Image>();
+      mask_msg->header = input_image_msg->header;
+      mask_msg->height = binary_mask.rows;
+      mask_msg->width = binary_mask.cols;
+      mask_msg->encoding = sensor_msgs::image_encodings::MONO8;
+      mask_msg->is_bigendian = false;
+      mask_msg->step = static_cast<sensor_msgs::msg::Image::_step_type>(binary_mask.step);
+      mask_msg->data.assign(binary_mask.datastart, binary_mask.dataend);
 
-      mask_pub_->publish(*mask_msg);
+      mask_pub_->publish(std::move(mask_msg));
     }
   }
 }
