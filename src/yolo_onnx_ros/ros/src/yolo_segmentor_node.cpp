@@ -212,9 +212,18 @@ cv::Mat YoloSegmentorNode::CreateBinaryMask(const cv::Size& image_size,
 
 void YoloSegmentorNode::ImageCallback(sensor_msgs::msg::Image::ConstSharedPtr msg)
 {
+  // Taken before the lock: now() locks the ROS clock, keep it out of our critical section.
+  const auto arrival_time = std::chrono::steady_clock::now();
+  const double arrival_age_ms = (this->now() - rclcpp::Time(msg->header.stamp)).seconds() * 1e3;
   {
     std::lock_guard<std::mutex> lock(input_image_mutex_);
+    if (new_image_available_)
+    {
+      ++dropped_frames_;  // Previous frame is overwritten before the worker took it.
+    }
     latest_image_ = std::move(msg);
+    latest_arrival_time_ = arrival_time;
+    latest_arrival_age_ms_ = arrival_age_ms;
     new_image_available_ = true;
   }
   input_image_cv_.notify_one();
@@ -225,6 +234,9 @@ void YoloSegmentorNode::RunInferenceAsync(std::stop_token stop_token)
   while (rclcpp::ok() && !stop_token.stop_requested())
   {
     sensor_msgs::msg::Image::ConstSharedPtr input_image_msg{nullptr};
+    std::chrono::steady_clock::time_point arrival_time{};
+    std::chrono::steady_clock::time_point dequeue_time{};
+    double arrival_age_ms = 0.0;
     {
       std::unique_lock<std::mutex> lock(input_image_mutex_);
       input_image_cv_.wait(lock,
@@ -243,6 +255,11 @@ void YoloSegmentorNode::RunInferenceAsync(std::stop_token stop_token)
 
       input_image_msg = std::move(latest_image_);
       new_image_available_ = false;
+      dequeue_time = std::chrono::steady_clock::now();
+      arrival_time = latest_arrival_time_;
+      arrival_age_ms = latest_arrival_age_ms_;
+      dropped_sum_ += dropped_frames_;  // dropped_sum_ is worker-only; dropped_frames_ is read under the lock.
+      dropped_frames_ = 0;
     }
 
     // Channel order is passed to the segmentor, which fuses the R/B swap into its blob repack (no cvtColor here).
@@ -348,15 +365,20 @@ void YoloSegmentorNode::RunInferenceAsync(std::stop_token stop_token)
       total_sum_ms_ += std::chrono::duration<double, std::milli>(end_time - start_inference_time).count();
       // End-to-end: image capture stamp -> now (includes transport, queueing and upstream nodes).
       end_to_end_sum_ms_ += (this->now() - rclcpp::Time(input_image_msg->header.stamp)).seconds() * 1e3;
+      arrival_sum_ms_ += arrival_age_ms;
+      wait_sum_ms_ += std::chrono::duration<double, std::milli>(dequeue_time - arrival_time).count();
       ++timing_frames_;
 
       if (end_time - last_timing_log_ >= std::chrono::seconds(1))
       {
         const double n = static_cast<double>(timing_frames_);
         RCLCPP_INFO(get_logger(),
-                    "Avg over %zu frames [ms] | pre %.2f | run %.2f | decode %.2f | masks %.2f | copy %.2f | "
-                    "node-mask %.2f | total %.2f | e2e %.2f",
+                    "Avg over %zu frames (dropped %zu) [ms] | arrival %.2f | wait %.2f | pre %.2f | run %.2f | "
+                    "decode %.2f | masks %.2f | copy %.2f | node-mask %.2f | total %.2f | e2e %.2f",
                     timing_frames_,
+                    dropped_sum_,
+                    arrival_sum_ms_ / n,
+                    wait_sum_ms_ / n,
                     segment_timings_sum_.preprocess_ms / n,
                     segment_timings_sum_.inference_ms / n,
                     segment_timings_sum_.decode_ms / n,
@@ -366,7 +388,8 @@ void YoloSegmentorNode::RunInferenceAsync(std::stop_token stop_token)
                     total_sum_ms_ / n,
                     end_to_end_sum_ms_ / n);
         segment_timings_sum_ = {};
-        node_mask_sum_ms_ = total_sum_ms_ = end_to_end_sum_ms_ = 0.0;
+        node_mask_sum_ms_ = total_sum_ms_ = end_to_end_sum_ms_ = arrival_sum_ms_ = wait_sum_ms_ = 0.0;
+        dropped_sum_ = 0;
         timing_frames_ = 0;
         last_timing_log_ = end_time;
       }

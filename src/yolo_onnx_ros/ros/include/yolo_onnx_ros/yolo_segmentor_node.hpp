@@ -143,12 +143,19 @@ class YoloSegmentorNode : public rclcpp_lifecycle::LifecycleNode
   double node_mask_sum_ms_{0.0};  // CreateBinaryMask + mask message fill + publish.
   double total_sum_ms_{0.0};      // Segment() start -> both messages published.
   double end_to_end_sum_ms_{0.0}; // Image header stamp -> both messages published.
+  double arrival_sum_ms_{0.0};    // Image header stamp -> ImageCallback.
+  double wait_sum_ms_{0.0};       // ImageCallback -> worker dequeue (mailbox wait + thread wake-up).
+  size_t dropped_sum_{0};         // Frames overwritten in the mailbox before the worker took them.
   size_t timing_frames_{0};
   std::chrono::steady_clock::time_point last_timing_log_{};
 
   // Input Image multi-threading safety variables
   std::atomic<bool> new_image_available_{false};
   sensor_msgs::msg::Image::ConstSharedPtr latest_image_;
+  // Guarded by input_image_mutex_ (written in ImageCallback, read by the inference thread).
+  std::chrono::steady_clock::time_point latest_arrival_time_{};
+  double latest_arrival_age_ms_{0.0};
+  size_t dropped_frames_{0};
   mutable std::mutex input_image_mutex_;
   std::condition_variable input_image_cv_;
 
