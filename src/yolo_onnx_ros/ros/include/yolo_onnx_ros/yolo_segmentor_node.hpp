@@ -92,9 +92,9 @@ class YoloSegmentorNode : public rclcpp_lifecycle::LifecycleNode
 
   /**
    * @brief Store the latest image received from the subscribed topic.
-   * @param msg Input image message.
+   * @param msg Input image message (read-only; shared with other intra-process subscribers).
    */
-  void ImageCallback(const sensor_msgs::msg::Image::SharedPtr msg);
+  void ImageCallback(sensor_msgs::msg::Image::ConstSharedPtr msg);
 
   /**
    * @brief Inference worker loop.
@@ -137,11 +137,18 @@ class YoloSegmentorNode : public rclcpp_lifecycle::LifecycleNode
   yolo_onnx::DeviceType device_type_;
   bool display_latency_;
 
-  std::vector<double> inference_times_ms_;  // Recent per-frame processing times [ms] (fractional, no truncation).
+  // Latency stats, accumulated over a ~1 s window and logged as averages (display_latency only).
+  // Touched only by the inference thread, so no synchronization is needed.
+  yolo_onnx::SegmentTimings segment_timings_sum_{};
+  double node_mask_sum_ms_{0.0};  // CreateBinaryMask + mask message fill + publish.
+  double total_sum_ms_{0.0};      // Segment() start -> both messages published.
+  double end_to_end_sum_ms_{0.0}; // Image header stamp -> both messages published.
+  size_t timing_frames_{0};
+  std::chrono::steady_clock::time_point last_timing_log_{};
 
   // Input Image multi-threading safety variables
   std::atomic<bool> new_image_available_{false};
-  sensor_msgs::msg::Image::SharedPtr latest_image_;
+  sensor_msgs::msg::Image::ConstSharedPtr latest_image_;
   mutable std::mutex input_image_mutex_;
   std::condition_variable input_image_cv_;
 

@@ -82,6 +82,13 @@ enum class DeviceType
   GPU,  ///< Run inference on a CUDA-enabled GPU.
 };
 
+/// Channel order of the 3-channel 8-bit input image. The model always receives RGB.
+enum class ChannelOrder
+{
+  RGB,  ///< e.g. sensor_msgs "rgb8".
+  BGR,  ///< OpenCV convention (cv::imread, cv::VideoCapture), sensor_msgs "bgr8".
+};
+
 /// Identifies the target device (CPU or GPU) used during ONNX Runtime inference.
 struct Device
 {
@@ -167,8 +174,10 @@ void LetterboxImage(const cv::Mat& input_image,
  * @param image Source image to convert.
  * @param blob Destination blob suitable for consumption by BlobToONNXTensor.
  * @param input_shape Dimensions (batch, channels, height, width) the blob should conform to.
+ * @param input_order Channel order of @p image. The blob is always RGB; the R/B swap (if any) is fused into
+ *        the HWC->CHW repack, so no separate cvtColor pass is needed.
  */
-void ImageToBlob(const cv::Mat& image, cv::Mat& blob, const InputShape& input_shape);
+void ImageToBlob(const cv::Mat& image, cv::Mat& blob, const InputShape& input_shape, ChannelOrder input_order);
 
 /**
  * @brief Convert raw ONNX Runtime output tensor(s) into an OpenCV Mat for downstream

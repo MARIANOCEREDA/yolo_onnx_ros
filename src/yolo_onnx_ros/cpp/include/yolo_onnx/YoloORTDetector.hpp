@@ -23,10 +23,12 @@ class YoloORTDetector : public YoloORTInterface
   YoloORTDetector& operator=(const YoloORTDetector&) = delete;
   ~YoloORTDetector() {};
 
-  void Detect(const cv::Mat& input_image, std::vector<BoundingBox>& bounding_boxes);
+  void Detect(const cv::Mat& input_image,
+              std::vector<BoundingBox>& bounding_boxes,
+              ChannelOrder input_order = ChannelOrder::BGR);
 
  protected:
-  void Preprocess(const cv::Mat& input_image, Ort::Value& input_tensor);
+  void Preprocess(const cv::Mat& input_image, Ort::Value& input_tensor, ChannelOrder input_order);
   void Postprocess(const cv::Mat& input_image, std::vector<Ort::Value>& output_tensor);
 
  private:
@@ -38,6 +40,7 @@ class YoloORTDetector : public YoloORTInterface
   
   cv::Size raw_input_image_size_{};  /// Original input image size before preprocessing.
   cv::Mat letterboxed_image_{};                 /// Letterboxed image for inference.
+  cv::Mat letterboxed_3ch_{};          /// Alpha-dropped letterbox (4-channel inputs only), reused.
   cv::Mat input_blob_{};                        /// Buffer backing input_tensor_
   cv::Mat output_blob_{};                       /// Buffer backing output_tensor_
   std::vector<BoundingBox> detected_bboxes_{};  /// Detected bounding boxes after postprocessing.

@@ -23,33 +23,37 @@ void BlobToONNXTensor(const cv::Mat& blob, Ort::Value& tensor, const InputShape&
 
 void LetterboxImage(const cv::Mat& input_image, cv::Mat& output_image, cv::Size target_size, cv::Scalar fill_color)
 {
-  // 1. Calculate the scaling factor to maintain aspect ration.
-  float scaling_factor = std::min(static_cast<float>(target_size.width) / input_image.cols,
-                                  static_cast<float>(target_size.height) / input_image.rows);
+  output_image.create(target_size, input_image.type());
 
-  // 2. Resize the image with the scaling factor.
-  cv::Mat resized_input_image;
-  cv::resize(input_image, resized_input_image, cv::Size(), scaling_factor, scaling_factor, cv::INTER_LINEAR);
+  const float scale = std::min(static_cast<float>(target_size.width) / input_image.cols,
+                               static_cast<float>(target_size.height) / input_image.rows);
+  
+  const cv::Size resized(cvRound(input_image.cols * scale), cvRound(input_image.rows * scale));
+  const cv::Rect roi(
+    (target_size.width - resized.width) / 2, (target_size.height - resized.height) / 2, resized.width, resized.height);
 
-  // 3. Output image creation
-  output_image = cv::Mat(target_size, input_image.type(), fill_color);
+  // Fill only the padding bands (zero-sized rects are no-ops).
+  output_image(cv::Rect(0, 0, target_size.width, roi.y)).setTo(fill_color);  // top
+  output_image(cv::Rect(0, roi.br().y, target_size.width, target_size.height - roi.br().y))
+    .setTo(fill_color);                                                                                     // bottom
+  output_image(cv::Rect(0, roi.y, roi.x, roi.height)).setTo(fill_color);                                    // left
+  output_image(cv::Rect(roi.br().x, roi.y, target_size.width - roi.br().x, roi.height)).setTo(fill_color);  // right
 
-  // 4. Copy the resized image into the center of the output image.
-  int x_offset = (target_size.width - resized_input_image.cols) / 2;
-  int y_offset = (target_size.height - resized_input_image.rows) / 2;
-  resized_input_image.copyTo(
-    output_image(cv::Rect(x_offset, y_offset, resized_input_image.cols, resized_input_image.rows)));
+  cv::Mat dst = output_image(roi);  // view into output_image, no copy
+  cv::resize(input_image, dst, roi.size(), 0, 0, cv::INTER_LINEAR);
 }
 
-void ImageToBlob(const cv::Mat& image, cv::Mat& blob, const InputShape& input_shape)
+void ImageToBlob(const cv::Mat& image, cv::Mat& blob, const InputShape& input_shape, ChannelOrder input_order)
 {
   // 1. Convert the image to float and normalize it to [0, 1].
   cv::Mat float_image;
   image.convertTo(float_image, CV_32F, 1.0 / 255.0);
 
-  // 2. Create a blob with the shape (batch, channels, height, width).
+  // 2. Create a blob with the shape (batch, channels, height, width). The model expects RGB:
+  //    swap R/B here (free, done during the repack) only when the input is BGR.
+  const bool swap_rb = (input_order == ChannelOrder::BGR);
   blob = cv::dnn::blobFromImage(
-    float_image, 1.0, cv::Size(input_shape.width, input_shape.height), cv::Scalar(), true, false);
+    float_image, 1.0, cv::Size(input_shape.width, input_shape.height), cv::Scalar(), swap_rb, false);
 }
 
 std::vector<int64_t> GetTensorShape(const Ort::Value& tensor)
@@ -303,11 +307,8 @@ void GetMasksFromTensor(cv::Mat& mask,
   mask = cv::Mat(static_cast<int>(mask_shape[1]), static_cast<int>(mask_shape[2] * mask_shape[3]), CV_32F, output_data);
 };
 
-void ProcessYoloMasks(cv::Mat& masks,
-                      const cv::Mat& raw_proto_masks,
-                      std::vector<BoundingBox>& boxes,
-                      int proto_height,
-                      int proto_width)
+void ProcessYoloMasks(
+  cv::Mat& masks, const cv::Mat& raw_proto_masks, std::vector<BoundingBox>& boxes, int proto_height, int proto_width)
 {
   const int num_boxes = static_cast<int>(boxes.size());
   if (num_boxes == 0)

@@ -15,7 +15,6 @@ find_package(rclcpp_components REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(vision_msgs REQUIRED)
-find_package(cv_bridge REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(geometry_msgs REQUIRED)
 
@@ -46,7 +45,6 @@ ament_target_dependencies(${COMPONENT_TARGET_NAME}
   rclcpp_lifecycle
   sensor_msgs
   vision_msgs
-  cv_bridge
   geometry_msgs
 )
 

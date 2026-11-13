@@ -1,10 +1,7 @@
 #include "yolo_onnx_ros/yolo_segmentor_node.hpp"
 
-#include <cv_bridge/cv_bridge.hpp>
-#include <sensor_msgs/image_encodings.hpp>
-
 #include <chrono>
-#include <numeric>
+#include <sensor_msgs/image_encodings.hpp>
 
 namespace yolo_onnx_ros
 {
@@ -213,7 +210,7 @@ cv::Mat YoloSegmentorNode::CreateBinaryMask(const cv::Size& image_size,
   return output;
 }
 
-void YoloSegmentorNode::ImageCallback(const sensor_msgs::msg::Image::SharedPtr msg)
+void YoloSegmentorNode::ImageCallback(sensor_msgs::msg::Image::ConstSharedPtr msg)
 {
   {
     std::lock_guard<std::mutex> lock(input_image_mutex_);
@@ -227,7 +224,7 @@ void YoloSegmentorNode::RunInferenceAsync(std::stop_token stop_token)
 {
   while (rclcpp::ok() && !stop_token.stop_requested())
   {
-    sensor_msgs::msg::Image::SharedPtr input_image_msg{nullptr};
+    sensor_msgs::msg::Image::ConstSharedPtr input_image_msg{nullptr};
     {
       std::unique_lock<std::mutex> lock(input_image_mutex_);
       input_image_cv_.wait(lock,
@@ -248,23 +245,60 @@ void YoloSegmentorNode::RunInferenceAsync(std::stop_token stop_token)
       new_image_available_ = false;
     }
 
-    // Start timing only after a frame is dequeued, so idle wait time is excluded.
-    const auto start_inference_time = std::chrono::steady_clock::now();
-
-    cv::Mat input_inference_image;
-    try
+    // Channel order is passed to the segmentor, which fuses the R/B swap into its blob repack (no cvtColor here).
+    // 4-channel inputs are viewed as-is (no copy); the segmentor drops alpha after letterboxing (640x640).
+    const auto& encoding = input_image_msg->encoding;
+    yolo_onnx::ChannelOrder input_order;
+    int channels = 0;
+    if (encoding == sensor_msgs::image_encodings::RGB8 || encoding == sensor_msgs::image_encodings::RGBA8)
     {
-      input_inference_image = cv_bridge::toCvCopy(input_image_msg, sensor_msgs::image_encodings::BGR8)->image;
+      input_order = yolo_onnx::ChannelOrder::RGB;
+      channels = (encoding == sensor_msgs::image_encodings::RGB8) ? 3 : 4;
     }
-    catch (const cv_bridge::Exception& error)
+    else if (encoding == sensor_msgs::image_encodings::BGR8 || encoding == sensor_msgs::image_encodings::BGRA8)
     {
-      RCLCPP_ERROR(get_logger(), "Unable to convert input image to BGR8: %s", error.what());
+      input_order = yolo_onnx::ChannelOrder::BGR;
+      channels = (encoding == sensor_msgs::image_encodings::BGR8) ? 3 : 4;
+    }
+    else
+    {
+      RCLCPP_ERROR_THROTTLE(get_logger(),
+                            *get_clock(),
+                            1000,
+                            "Input image encoding must be 'rgb8', 'bgr8', 'rgba8' or 'bgra8', but got '%s'.",
+                            encoding.c_str());
       continue;
     }
 
+    // Row-stride aware: rows may be padded (step > width * channels). Computed in size_t to avoid uint32 overflow.
+    const size_t min_step = static_cast<size_t>(input_image_msg->width) * static_cast<size_t>(channels);
+    const size_t required_size = static_cast<size_t>(input_image_msg->step) * input_image_msg->height;
+    if (input_image_msg->step < min_step || input_image_msg->data.size() < required_size)
+    {
+      RCLCPP_ERROR_THROTTLE(get_logger(),
+                            *get_clock(),
+                            1000,
+                            "Invalid image layout: %ux%u, step=%u (min %zu), data=%zu bytes (min %zu).",
+                            input_image_msg->width,
+                            input_image_msg->height,
+                            input_image_msg->step,
+                            min_step,
+                            input_image_msg->data.size(),
+                            required_size);
+      continue;
+    }
+
+    const cv::Mat input_inference_image(static_cast<int>(input_image_msg->height),
+                                        static_cast<int>(input_image_msg->width),
+                                        CV_8UC(channels),
+                                        const_cast<uint8_t*>(input_image_msg->data.data()),
+                                        static_cast<size_t>(input_image_msg->step));
+
+    
+    const auto start_inference_time = std::chrono::steady_clock::now();
     try
     {
-      segmentor_->Segment(input_inference_image, latest_detections_);
+      segmentor_->Segment(input_inference_image, latest_detections_, input_order);
     }
     catch (const std::exception& error)
     {
@@ -280,28 +314,11 @@ void YoloSegmentorNode::RunInferenceAsync(std::stop_token stop_token)
     this->ToVisionMsgsDetections(detections, *detection_msg);
     if (detection_pub_ && detection_pub_->is_activated())
     {
-      if (display_latency_)
-      {
-        // Processing time: dequeue -> detections ready (convert + preprocess + inference + postprocess).
-        const auto processing_ms =
-            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start_inference_time).count();
-        // End-to-end: image capture stamp -> now (includes transport, queueing and upstream nodes).
-        const double end_to_end_ms = (this->now() - rclcpp::Time(input_image_msg->header.stamp)).seconds() * 1e3;
-
-        inference_times_ms_.push_back(processing_ms);
-        if (inference_times_ms_.size() > 5)
-        {
-          inference_times_ms_.erase(inference_times_ms_.begin());
-        }
-        const double average_processing_ms =
-            std::accumulate(inference_times_ms_.begin(), inference_times_ms_.end(), 0.0) / inference_times_ms_.size();
-        RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 1000, "Processing: %.1f ms (avg of last %zu) | end-to-end: %.1f ms",
-                             average_processing_ms, inference_times_ms_.size(), end_to_end_ms);
-      }
       detection_pub_->publish(std::move(detection_msg));
     }
 
     // Publish class-coloured segmentation mask (black background)
+    const auto start_mask_time = std::chrono::steady_clock::now();
     if (mask_pub_ && mask_pub_->is_activated())
     {
       cv::Mat binary_mask = CreateBinaryMask(input_inference_image.size(), detections);
@@ -316,6 +333,43 @@ void YoloSegmentorNode::RunInferenceAsync(std::stop_token stop_token)
       mask_msg->data.assign(binary_mask.datastart, binary_mask.dataend);
 
       mask_pub_->publish(std::move(mask_msg));
+    }
+
+    if (display_latency_)
+    {
+      const auto end_time = std::chrono::steady_clock::now();
+      const auto& t = segmentor_->GetLastTimings();
+      segment_timings_sum_.preprocess_ms += t.preprocess_ms;
+      segment_timings_sum_.inference_ms += t.inference_ms;
+      segment_timings_sum_.decode_ms += t.decode_ms;
+      segment_timings_sum_.masks_ms += t.masks_ms;
+      segment_timings_sum_.copy_out_ms += t.copy_out_ms;
+      node_mask_sum_ms_ += std::chrono::duration<double, std::milli>(end_time - start_mask_time).count();
+      total_sum_ms_ += std::chrono::duration<double, std::milli>(end_time - start_inference_time).count();
+      // End-to-end: image capture stamp -> now (includes transport, queueing and upstream nodes).
+      end_to_end_sum_ms_ += (this->now() - rclcpp::Time(input_image_msg->header.stamp)).seconds() * 1e3;
+      ++timing_frames_;
+
+      if (end_time - last_timing_log_ >= std::chrono::seconds(1))
+      {
+        const double n = static_cast<double>(timing_frames_);
+        RCLCPP_INFO(get_logger(),
+                    "Avg over %zu frames [ms] | pre %.2f | run %.2f | decode %.2f | masks %.2f | copy %.2f | "
+                    "node-mask %.2f | total %.2f | e2e %.2f",
+                    timing_frames_,
+                    segment_timings_sum_.preprocess_ms / n,
+                    segment_timings_sum_.inference_ms / n,
+                    segment_timings_sum_.decode_ms / n,
+                    segment_timings_sum_.masks_ms / n,
+                    segment_timings_sum_.copy_out_ms / n,
+                    node_mask_sum_ms_ / n,
+                    total_sum_ms_ / n,
+                    end_to_end_sum_ms_ / n);
+        segment_timings_sum_ = {};
+        node_mask_sum_ms_ = total_sum_ms_ = end_to_end_sum_ms_ = 0.0;
+        timing_frames_ = 0;
+        last_timing_log_ = end_time;
+      }
     }
   }
 }
