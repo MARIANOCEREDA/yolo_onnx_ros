@@ -119,7 +119,8 @@ class YoloSegmentorNode : public rclcpp_lifecycle::LifecycleNode
    * @brief Create a binary segmentation mask.
    * @param image_size Size of the output image (should match the original input image).
    * @param detections Detector outputs with per-instance masks.
-   * @return Single-channel (MONO8) image: 255 for segmented pixels, 0 for background.
+   * @return Single-channel (MONO8) image: class_id + 1 for segmented pixels, 0 for background.
+   *         Where instances overlap, the later detection overwrites the earlier one.
    */
   static cv::Mat CreateBinaryMask(
       const cv::Size& image_size,

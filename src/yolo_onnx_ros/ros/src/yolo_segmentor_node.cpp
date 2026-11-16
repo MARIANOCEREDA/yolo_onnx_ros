@@ -169,10 +169,11 @@ cv::Mat YoloSegmentorNode::CreateBinaryMask(const cv::Size& image_size,
 
   for (const auto& detection : detections)
   {
-    if (detection.mask.empty())
+    if (detection.mask.empty() || detection.class_id < 0 || detection.class_id > 254)
     {
       continue;
     }
+    const auto class_value = static_cast<uint8_t>(detection.class_id + 1);
 
     int x = std::max(0, static_cast<int>(detection.x));
     int y = std::max(0, static_cast<int>(detection.y));
@@ -201,7 +202,7 @@ cv::Mat YoloSegmentorNode::CreateBinaryMask(const cv::Size& image_size,
       {
         if (mask_resized.at<float>(r, c) > 0.5f)
         {
-          roi.at<uint8_t>(r, c) = 255;
+          roi.at<uint8_t>(r, c) = class_value;
         }
       }
     }
